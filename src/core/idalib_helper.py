@@ -50,17 +50,20 @@ def export_binary(binary_path, output_dir):
         idadir = os.environ.get("IDADIR")
         candidates = []
         
-        # Priority 1: Scan 'plugins' directory in IDADIR (Handles macOS, Linux, Windows dynamic names)
+        # Priority 1: Scan IDADIR root and 'plugins' directory for binexport files
         if idadir:
-             plugins_dir = os.path.join(idadir, "plugins")
-             if os.path.exists(plugins_dir):
-                 print(f"Scanning plugins dir: {plugins_dir}")
-                 for f in os.listdir(plugins_dir):
-                     if "binexport" in f.lower():
-                         print(f"Found plugin file: {f}")
-                         candidates.append(f)                    # Filename: binexport12_ida.dylib
-                         candidates.append(os.path.splitext(f)[0]) # Stem: binexport12_ida
-                         candidates.append(os.path.join(plugins_dir, f)) # Absolute path
+             # Scan directories to find binexport plugin
+             scan_dirs = [idadir, os.path.join(idadir, "plugins")]
+             for scan_dir in scan_dirs:
+                 if os.path.exists(scan_dir):
+                     print(f"Scanning for plugins in: {scan_dir}")
+                     for f in os.listdir(scan_dir):
+                         if "binexport" in f.lower():
+                             print(f"Found plugin file: {f}")
+                             full_path = os.path.join(scan_dir, f)
+                             candidates.append(full_path)            # Absolute path first
+                             candidates.append(f)                    # Filename
+                             candidates.append(os.path.splitext(f)[0]) # Stem
         
         # Priority 2: Hardcoded Fallbacks (Linux/macOS standard names)
         fallback_names = [
