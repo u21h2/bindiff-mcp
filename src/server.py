@@ -85,7 +85,7 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
             
             # Get all matches from DB
             # We need ALL matches to subtract from total functions
-            all_matches = parser.get_function_diffs(limit=100000) # Assuming < 100k functions
+            all_matches = parser.get_function_diffs(limit=10000000) # Assuming < 10000k functions
             
             parser.close()
             
@@ -103,6 +103,51 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
             primary_funcs = {int(k): v for k, v in primary_funcs.items()}
             secondary_funcs = {int(k): v for k, v in secondary_funcs.items()}
             
+            # Helper function to filter noise (library/thunk functions)
+            def get_func_name(func_data):
+                """Extract function name from func_data (supports both old and new format)"""
+                if isinstance(func_data, str):
+                    return func_data
+                return func_data.get("name", "")
+            
+            def should_filter_function(func_data):
+                """
+                Determine if a function should be filtered out (simulating BinDiff GUI noise reduction).
+                Returns True if the function should be excluded from Unmatched results.
+                """
+                # If we have metadata, use it
+                if isinstance(func_data, dict):
+                    if func_data.get("is_lib", False):
+                        return True
+                    if func_data.get("is_thunk", False):
+                        return True
+                    # Optional: filter very small functions (less than 8 bytes)
+                    # if func_data.get("size", 100) < 8:
+                    #     return True
+                
+                # Heuristic filtering based on naming conventions
+                name = get_func_name(func_data)
+                
+                # Thunk functions (IDA typically names them with j_ prefix)
+                if name.startswith("j_") or name.startswith("."):
+                    return True
+                # PLT functions
+                if ".plt" in name or "@plt" in name:
+                    return True
+                # Common library function prefixes (auto-labeled by IDA)
+                # Exclude C++ mangled names (__Z...)
+                if name.startswith("__") and not name.startswith("__Z"):
+                    return True
+                # Null/stub functions
+                if name.startswith("nullsub_") or name.startswith("_nullsub_"):
+                    return True
+                # Import stubs
+                if name.startswith("_") and name[1:2].isupper():
+                    # Pattern like _Printf, _Malloc - often import stubs
+                    pass  # Don't filter these aggressively
+                    
+                return False
+            
             # Organize Data
             identical = []
             changed = []
@@ -117,11 +162,17 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
                 matched_pri_addrs.add(addr1)
                 matched_sec_addrs.add(addr2)
                 
+                # Get names from our exported data (supports both old and new format)
+                pri_data = primary_funcs.get(addr1)
+                sec_data = secondary_funcs.get(addr2)
+                name1 = get_func_name(pri_data) if pri_data else f"sub_{addr1:x}"
+                name2 = get_func_name(sec_data) if sec_data else f"sub_{addr2:x}"
+                
                 item = {
                     "address1": addr1,
-                    "name1": primary_funcs.get(addr1, f"sub_{addr1:x}"),
+                    "name1": name1,
                     "address2": addr2,
-                    "name2": secondary_funcs.get(addr2, f"sub_{addr2:x}"),
+                    "name2": name2,
                     "similarity": similarity
                 }
                 
@@ -133,16 +184,29 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
             # Sort changed by similarity descending (High -> Low)
             changed.sort(key=lambda x: x['similarity'], reverse=True)
                     
-            # Compute Unmatched
+            # Compute Unmatched (with noise filtering)
             primary_only = []
-            for addr, name in primary_funcs.items():
-                if addr not in matched_pri_addrs:
-                    primary_only.append({"address": addr, "name": name})
+            filtered_primary_count = 0
+            for addr, func_data in primary_funcs.items():
+                if addr in matched_pri_addrs:
+                    continue
+                if should_filter_function(func_data):
+                    filtered_primary_count += 1
+                    continue
+                primary_only.append({"address": addr, "name": get_func_name(func_data)})
                     
             secondary_only = []
-            for addr, name in secondary_funcs.items():
-                if addr not in matched_sec_addrs:
-                    secondary_only.append({"address": addr, "name": name})
+            filtered_secondary_count = 0
+            for addr, func_data in secondary_funcs.items():
+                if addr in matched_sec_addrs:
+                    continue
+                if should_filter_function(func_data):
+                    filtered_secondary_count += 1
+                    continue
+                secondary_only.append({"address": addr, "name": get_func_name(func_data)})
+            
+            logger.info(f"Filtered {filtered_primary_count} noise functions from primary")
+            logger.info(f"Filtered {filtered_secondary_count} noise functions from secondary")
             
             # Write Files
             import json
@@ -194,7 +258,7 @@ def main():
     args = parser.parse_args()
     
     if args.transport == "sse":
-        print(f"Starting SSE server on {args.host}:{args.port}")
+        print(f"Starting SSE server 2on {args.host}:{args.port}")
         # FastMCP.run() doesn't accept host/port, they are in settings
         mcp.settings.host = args.host
         mcp.settings.port = args.port

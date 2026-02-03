@@ -14,6 +14,7 @@ try:
     import idc
     import idautils
     import ida_auto
+    import ida_funcs
 except ImportError as e:
     print(f"Error importing IDALib: {e}", file=sys.stderr)
     sys.exit(1)
@@ -34,12 +35,29 @@ def export_binary(binary_path, output_dir):
         binexport_file = os.path.join(output_dir, root + ".BinExport")
         funcs_file = os.path.join(output_dir, root + ".functions.json")
         
-        # 1. Export Function List
+        # 1. Export Function List with metadata
         print(f"Exporting functions to {funcs_file}...")
         funcs = {}
         for ea in idautils.Functions():
-            name = idc.get_func_name(ea)
-            funcs[ea] = name
+            func = ida_funcs.get_func(ea)
+            if func:
+                flags = func.flags
+                funcs[ea] = {
+                    "name": idc.get_func_name(ea),
+                    "is_lib": bool(flags & ida_funcs.FUNC_LIB),
+                    "is_thunk": bool(flags & ida_funcs.FUNC_THUNK),
+                    "size": func.end_ea - func.start_ea,
+                    "flags": flags
+                }
+            else:
+                # Fallback if func object unavailable
+                funcs[ea] = {
+                    "name": idc.get_func_name(ea),
+                    "is_lib": False,
+                    "is_thunk": False,
+                    "size": 0,
+                    "flags": 0
+                }
         with open(funcs_file, "w") as f:
             json.dump(funcs, f, indent=2)
 
