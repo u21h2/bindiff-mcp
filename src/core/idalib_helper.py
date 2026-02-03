@@ -15,9 +15,29 @@ try:
     import idautils
     import ida_auto
     import ida_funcs
+    import ida_gdl
 except ImportError as e:
     print(f"Error importing IDALib: {e}", file=sys.stderr)
     sys.exit(1)
+
+def count_basic_blocks(func):
+    """Count the number of basic blocks in a function using its flowchart."""
+    try:
+        flowchart = ida_gdl.FlowChart(func)
+        return sum(1 for _ in flowchart)
+    except:
+        return 0
+
+def count_instructions(func):
+    """Count the number of instructions in a function."""
+    try:
+        count = 0
+        for head in idautils.Heads(func.start_ea, func.end_ea):
+            if idc.is_code(idc.get_full_flags(head)):
+                count += 1
+        return count
+    except:
+        return 0
 
 def export_binary(binary_path, output_dir):
     print(f"Opening database for {binary_path}...")
@@ -42,11 +62,17 @@ def export_binary(binary_path, output_dir):
             func = ida_funcs.get_func(ea)
             if func:
                 flags = func.flags
+                # Count basic blocks and instructions
+                bb_count = count_basic_blocks(func)
+                instr_count = count_instructions(func)
+                
                 funcs[ea] = {
                     "name": idc.get_func_name(ea),
                     "is_lib": bool(flags & ida_funcs.FUNC_LIB),
                     "is_thunk": bool(flags & ida_funcs.FUNC_THUNK),
                     "size": func.end_ea - func.start_ea,
+                    "basic_blocks": bb_count,
+                    "instructions": instr_count,
                     "flags": flags
                 }
             else:
@@ -56,6 +82,8 @@ def export_binary(binary_path, output_dir):
                     "is_lib": False,
                     "is_thunk": False,
                     "size": 0,
+                    "basic_blocks": 0,
+                    "instructions": 0,
                     "flags": 0
                 }
         with open(funcs_file, "w") as f:

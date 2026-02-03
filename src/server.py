@@ -173,7 +173,12 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
                     "name1": name1,
                     "address2": addr2,
                     "name2": name2,
-                    "similarity": similarity
+                    "similarity": similarity,
+                    "confidence": m.get('confidence', 0.0),
+                    "algorithm": m.get('algorithm', 'unknown'),
+                    "basicblocks": m.get('basicblocks', 0),
+                    "edges": m.get('edges', 0),
+                    "instructions": m.get('instructions', 0)
                 }
                 
                 if similarity >= 0.999: # Treat 1.0ish as identical
@@ -185,6 +190,16 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
             changed.sort(key=lambda x: x['similarity'], reverse=True)
                     
             # Compute Unmatched (with noise filtering)
+            def get_func_metadata(func_data):
+                """Extract extended metadata from func_data for unmatched functions."""
+                if isinstance(func_data, dict):
+                    return {
+                        "basic_blocks": func_data.get("basic_blocks", 0),
+                        "instructions": func_data.get("instructions", 0),
+                        "size": func_data.get("size", 0)
+                    }
+                return {"basic_blocks": 0, "instructions": 0, "size": 0}
+            
             primary_only = []
             filtered_primary_count = 0
             for addr, func_data in primary_funcs.items():
@@ -193,7 +208,14 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
                 if should_filter_function(func_data):
                     filtered_primary_count += 1
                     continue
-                primary_only.append({"address": addr, "name": get_func_name(func_data)})
+                meta = get_func_metadata(func_data)
+                primary_only.append({
+                    "address": addr, 
+                    "name": get_func_name(func_data),
+                    "basic_blocks": meta["basic_blocks"],
+                    "instructions": meta["instructions"],
+                    "size": meta["size"]
+                })
                     
             secondary_only = []
             filtered_secondary_count = 0
@@ -203,7 +225,14 @@ async def bindiff_compare(primary_binary: str, secondary_binary: str, output_res
                 if should_filter_function(func_data):
                     filtered_secondary_count += 1
                     continue
-                secondary_only.append({"address": addr, "name": get_func_name(func_data)})
+                meta = get_func_metadata(func_data)
+                secondary_only.append({
+                    "address": addr, 
+                    "name": get_func_name(func_data),
+                    "basic_blocks": meta["basic_blocks"],
+                    "instructions": meta["instructions"],
+                    "size": meta["size"]
+                })
             
             logger.info(f"Filtered {filtered_primary_count} noise functions from primary")
             logger.info(f"Filtered {filtered_secondary_count} noise functions from secondary")
